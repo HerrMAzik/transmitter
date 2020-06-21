@@ -41,9 +41,9 @@ if parser.has_section("extra"):
 
 if not Path(session_name + ".session").exists():
     if phone_number is None:
-        raise ValueError("phone_number must be set for new session")
+        raise ValueError("phone_number must be set for a new session")
     if password is None:
-        raise ValueError("password must be set for new session")
+        raise ValueError("password must be set for a new session")
 
 app = Client(
     session_name=session_name,
@@ -56,6 +56,18 @@ app = Client(
 def now():
     return time.strftime("%H:%M:%S", time.localtime())
 
+
+settings = ConfigParser()
+settings.read(str(Path("./settings.ini")))
+msg_id = None
+if settings.has_section("main"):
+    msg_id = (
+        settings.has_option("main", "last_msg_id")
+        and settings.getint("main", "last_msg_id")
+        or None
+    )
+else:
+    settings.add_section("main")
 
 with app:
     dialogs = app.get_dialogs()
@@ -93,7 +105,12 @@ with app:
     to_chat_id = answers["chat"]
 
     def transmitter(client, message):
+        global msg_id
         if message.chat.id == from_chat_id:
+            if msg_id is not None and msg_id >= message.message_id:
+                print(now(), message.message_id, "- skipped")
+                return
+            msg_id = message.message_id
             client.forward_messages(
                 chat_id=to_chat_id,
                 from_chat_id=message.chat.id,
@@ -101,11 +118,18 @@ with app:
                 as_copy=as_copy,
             )
             app.read_history(from_chat_id, message.message_id)
-            print(now())
+            print(now(), message.message_id, message.text)
 
     app.add_handler(MessageHandler(transmitter))
-    print(now(), "- started")
+    print(now(), "- session started")
     app.idle()
 
+if msg_id is not None:
+    settings.set("main", "last_msg_id", str(msg_id))
+with open("settings.ini", "w") as f:
+    settings.write(f)
+    print()
+    print("settings saved")
+
 print()
-print(now(), "- closed")
+print(now(), "- session closed")
